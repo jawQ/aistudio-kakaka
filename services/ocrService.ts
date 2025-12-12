@@ -34,27 +34,33 @@ export const analyzeScheduleImage = async (file: File): Promise<OCRSessionData[]
   const prompt = `
     Analyze this schedule image (screenshot from a notes app) and extract valid working shifts for the year ${currentYear}.
 
-    **Image Format Patterns to Look For:**
-    The text usually follows this pattern:
-    "Date(Weekday) [Optional Icons] StartTime-EndTime [Duration] [ProjectName] [Optional Icons/Notes]"
+    **Image Format Patterns:**
+    The text typically follows: "Date(Weekday) [Icons] TimeRange [DurationNumber] [ProjectName] [Icons] [SecondTimeRange] [Duration]..."
     
-    Examples from the image:
-    - "12.4(周四) 🦶 9-12 3 十九 🍚💅" -> Date: 12.4, Time: 09:00-12:00, Project: 十九
-    - "12.5(周五) 14-19 5" -> Date: 12.5, Time: 14:00-19:00, Project: 直播 (Default)
-    - "12.3(周三)休" -> IGNORE (Rest day)
-
-    **Rules:**
-    1. **Date**: Parse "12.4" as December 4th. Format as "YYYY-MM-DD".
-    2. **Time**: Parse ranges like "9-12" (09:00-12:00), "14-19" (14:00-19:00), "19-24" (19:00-24:00).
-       - Note: "24" means midnight/next day 00:00.
-    3. **Ignore**:
-       - Lines containing "休" (Rest/Off).
-       - Random icons/emojis like 🦶, 🍚, 💅, 🗓️, ⏰ unless they look like a project name.
-       - Isolated numbers that represent duration (e.g., the "3" in "9-12 3") should NOT be part of the project name.
-    4. **Project Name**: Extract the text after the time and duration.
-       - Common names: "十九", "背", "早班".
-       - If no text exists after time/duration, use "直播" as default.
-    5. **Multi-shift**: A single date might have multiple lines or entries.
+    **Specific Parsing Rules:**
+    1. **Date**: Parse "12.4" or "12.22" as MM.DD. Format output as "YYYY-MM-DD".
+    2. **Time Ranges**: 
+       - Look for patterns like "9-12", "14-19", "19-24", "13-17".
+       - "24" denotes 00:00 of the next day.
+       - A single line might contain MULTIPLE time ranges (e.g., "12.8(周一) 13-17 4 19-24 5"). Create SEPARATE objects for each time range found on the date.
+    3. **Duration Number**:
+       - Often a single number appears immediately after the time range (e.g., the '3' in "9-12 3", or '5' in "14-19 5").
+       - **CRITICAL**: This number represents duration in hours. **DO NOT** include this number in the 'workName'.
+    4. **Work Name / Project**:
+       - Extract text after the time range and duration number.
+       - Examples: "十九", "背", "早班", "品牌".
+       - Ignore emojis like 🦶, 🍚, 💅, 🗓️, ⏰ unless they look like a specific logo/brand.
+       - If NO text exists after the time/duration, use "Live" or "直播" as the default workName.
+    5. **Ignore**:
+       - Lines containing "休" (Rest day).
+       - Headers like "第二周", "12月".
+    
+    **Example Handling:**
+    - Input: "12.4(周四) 🦶 9-12 3 十九 🍚💅"
+      Output: { dateStr: "${currentYear}-12-04", startTime: "09:00", endTime: "12:00", workName: "十九" }
+    - Input: "12.8(周一) 13-17 4 19-24 5" 
+      Output Item 1: { dateStr: "${currentYear}-12-08", startTime: "13:00", endTime: "17:00", workName: "Live" }
+      Output Item 2: { dateStr: "${currentYear}-12-08", startTime: "19:00", endTime: "24:00", workName: "Live" }
 
     Return a JSON array.
   `;
@@ -75,10 +81,10 @@ export const analyzeScheduleImage = async (file: File): Promise<OCRSessionData[]
             type: Type.OBJECT,
             properties: {
               dateStr: { type: Type.STRING, description: "YYYY-MM-DD" },
-              startTime: { type: Type.STRING, description: "HH:MM in 24h format" },
-              endTime: { type: Type.STRING, description: "HH:MM in 24h format" },
-              workName: { type: Type.STRING, description: "Cleaned project name without emojis" },
-              notes: { type: Type.STRING, description: "Original raw text line for reference" },
+              startTime: { type: Type.STRING, description: "HH:MM (24h)" },
+              endTime: { type: Type.STRING, description: "HH:MM (24h)" },
+              workName: { type: Type.STRING, description: "Project name" },
+              notes: { type: Type.STRING, description: "Original context if needed" },
             },
             required: ["dateStr", "startTime", "endTime"],
           },

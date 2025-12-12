@@ -19,10 +19,26 @@ const ImportView: React.FC<ImportViewProps> = ({ onBack, onImportSuccess }) => {
     setStep('analyzing');
     try {
       const data = await analyzeScheduleImage(file);
-      setParsedData(data);
+      // Sort by date
+      const sortedData = data.sort((a, b) => new Date(a.dateStr).getTime() - new Date(b.dateStr).getTime());
+      setParsedData(sortedData);
       setStep('preview');
     } catch (error) {
-      alert('Error analyzing image. Please try again.');
+      alert('无法识别图片，请重试');
+      setStep('upload');
+    }
+  };
+
+  const handleUpdateItem = (index: number, field: keyof OCRSessionData, value: string) => {
+    const newData = [...parsedData];
+    newData[index] = { ...newData[index], [field]: value };
+    setParsedData(newData);
+  };
+
+  const handleDeleteItem = (index: number) => {
+    const newData = parsedData.filter((_, i) => i !== index);
+    setParsedData(newData);
+    if (newData.length === 0) {
       setStep('upload');
     }
   };
@@ -31,17 +47,26 @@ const ImportView: React.FC<ImportViewProps> = ({ onBack, onImportSuccess }) => {
     parsedData.forEach(item => {
       let startIso = `${item.dateStr}T${item.startTime}:00`;
       let endIso = `${item.dateStr}T${item.endTime}:00`;
-      if (item.endTime === '24:00') {
+      
+      // Handle midnight crossing or pure '24:00'
+      if (item.endTime === '24:00' || item.endTime === '00:00') {
          const d = new Date(item.dateStr);
          d.setDate(d.getDate() + 1);
          const nextDay = d.toISOString().split('T')[0];
          endIso = `${nextDay}T00:00:00`;
+      } else if (parseInt(item.endTime.split(':')[0]) < parseInt(item.startTime.split(':')[0])) {
+         // Assume next day if end hour < start hour
+         const d = new Date(item.dateStr);
+         d.setDate(d.getDate() + 1);
+         const nextDay = d.toISOString().split('T')[0];
+         endIso = `${nextDay}T${item.endTime}:00`;
       }
+
       saveSession({
         id: crypto.randomUUID(),
         workName: item.workName || 'Live',
         location: 'Studio',
-        hourlyRate: 0,
+        hourlyRate: 0, // Default rate
         startTime: new Date(startIso).toISOString(),
         endTime: new Date(endIso).toISOString(),
         status: WorkStatus.UPCOMING,
@@ -89,34 +114,83 @@ const ImportView: React.FC<ImportViewProps> = ({ onBack, onImportSuccess }) => {
                 <div className="w-16 h-16 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
                 <div className="absolute inset-0 flex items-center justify-center text-xl">✨</div>
               </div>
-              <p className="text-slate-800 font-bold mt-6">Analyzing Schedule...</p>
-              <p className="text-slate-400 text-sm mt-1">This might take a few seconds</p>
+              <p className="text-slate-800 font-bold mt-6">Analyzing...</p>
            </div>
         )}
 
         {step === 'preview' && (
-          <div className="space-y-4 pb-24 pt-4">
-             <p className="text-center text-slate-400 text-xs uppercase font-bold tracking-widest mb-2">Found {parsedData.length} Shifts</p>
+          <div className="space-y-4 pb-28 pt-4">
+             <div className="flex justify-between items-end px-2">
+                <p className="text-slate-400 text-xs uppercase font-bold tracking-widest">Found {parsedData.length} Shifts</p>
+                <p className="text-slate-300 text-[10px]">Tap to edit</p>
+             </div>
+             
              {parsedData.map((item, i) => (
-               <div key={i} className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl shadow-sm border border-white flex items-center gap-4">
-                  <div className="bg-slate-50 w-12 h-12 rounded-2xl flex flex-col items-center justify-center flex-shrink-0 border border-slate-100">
-                     <span className="text-[10px] font-bold text-slate-400 uppercase">{new Date(item.dateStr).toLocaleString('en-US', {month: 'short'})}</span>
-                     <span className="text-lg font-bold text-slate-800 leading-none">{new Date(item.dateStr).getDate()}</span>
+               <div key={i} className="bg-white/80 backdrop-blur-sm p-4 rounded-3xl shadow-sm border border-white relative group">
+                  {/* Header: Date & Delete */}
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2">
+                       <div className="w-2 h-2 rounded-full bg-slate-200"></div>
+                       <input 
+                          type="date" 
+                          value={item.dateStr}
+                          onChange={(e) => handleUpdateItem(i, 'dateStr', e.target.value)}
+                          className="bg-transparent text-sm font-bold text-slate-500 uppercase outline-none"
+                       />
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteItem(i)}
+                      className="w-6 h-6 flex items-center justify-center rounded-full bg-rose-50 text-rose-400 hover:bg-rose-100 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="flex-1">
-                     <p className="font-bold text-slate-800">{item.workName}</p>
-                     <p className="text-xs text-slate-500 font-medium">{item.startTime} - {item.endTime}</p>
+
+                  {/* Body: Time & Name Inputs */}
+                  <div className="flex gap-3">
+                     <div className="flex-1 space-y-2">
+                        <label className="text-[10px] font-bold text-slate-300 uppercase block">Time</label>
+                        <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-2 py-1.5 border border-slate-100">
+                           <input 
+                              type="time" 
+                              value={item.startTime}
+                              onChange={(e) => handleUpdateItem(i, 'startTime', e.target.value)}
+                              className="bg-transparent text-sm font-bold text-slate-800 outline-none w-full"
+                           />
+                           <span className="text-slate-300">-</span>
+                           <input 
+                              type="time" 
+                              value={item.endTime === '24:00' ? '00:00' : item.endTime}
+                              onChange={(e) => handleUpdateItem(i, 'endTime', e.target.value)}
+                              className="bg-transparent text-sm font-bold text-slate-800 outline-none w-full"
+                           />
+                        </div>
+                     </div>
+                     <div className="flex-[1.5] space-y-2">
+                        <label className="text-[10px] font-bold text-slate-300 uppercase block">Project</label>
+                        <input 
+                           type="text" 
+                           value={item.workName}
+                           onChange={(e) => handleUpdateItem(i, 'workName', e.target.value)}
+                           className="w-full bg-slate-50 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-800 outline-none border border-slate-100 focus:bg-white focus:border-slate-300 transition-colors"
+                        />
+                     </div>
                   </div>
                </div>
              ))}
+             
+             {/* Add Row Button (Optional, but nice to have space) */}
+             <div className="h-8"></div>
           </div>
         )}
       </div>
 
       {step === 'preview' && (
-         <div className="absolute bottom-0 left-0 right-0 p-6 pb-safe bg-gradient-to-t from-white via-white/90 to-transparent z-30">
+         <div className="absolute bottom-0 left-0 right-0 p-6 pb-safe bg-gradient-to-t from-[#FDFBF7] via-[#FDFBF7]/95 to-transparent z-30">
             <button onClick={handleConfirmImport} className="w-full py-4 bg-slate-800 text-white font-bold rounded-[1.5rem] shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2">
-               <span>Confirm Import</span>
+               <span>Import {parsedData.length} Shifts</span>
                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                </svg>
