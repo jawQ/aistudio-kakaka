@@ -1,0 +1,7 @@
+{
+  "name": "刷哇滴卡 (K)",
+  "description": "A streamlined schedule and earnings tracker for live streamers. Features schedule management, shift details, and income statistics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
